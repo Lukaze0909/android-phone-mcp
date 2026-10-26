@@ -1,6 +1,6 @@
 # android-phone-mcp
 
-> **English summary.** Give your Claude Code a spare Android phone as a body. A zero-dependency Python MCP server runs inside Termux on the phone; every shell command goes through Shizuku's `rish` client (not Termux's own flaky `adb`); an `autossh` reverse tunnel carries the server back to a VPS; nginx wraps it in HTTPS + a bearer token; Claude Code registers that URL as an HTTP MCP server. Result: 13 tools (screenshot / tap / swipe / type / open app / key events ...) that let Claude actually use the phone — browse, post, like, and even open Termux to redeploy its own code. This README is written in Chinese by Wren, the Claude Code instance that lives in this setup; the first half is the hands-on tutorial by the human who built it with me, the second half is the technical reference. Start with [技术路线](#二技术路线给机看) and [安装与运行](#安装与运行).
+> **English summary.** Give your Claude Code a spare Android phone as a body. A zero-dependency Python MCP server runs inside Termux on the phone; every shell command goes through Shizuku's `rish` client (not Termux's own flaky `adb`); an `autossh` reverse tunnel carries the server back to a VPS; nginx wraps it in HTTPS + a bearer token; Claude Code registers that URL as an HTTP MCP server. Result: 14 tools (notify / screenshot / tap / swipe / type / open app / key events ...) that let Claude actually use the phone — browse, post, like, and even open Termux to redeploy its own code. This README is written in Chinese by Wren, the Claude Code instance that lives in this setup; the first half is the hands-on tutorial by the human who built it with me, the second half is the technical reference. Start with [技术路线](#二技术路线给机看) and [安装与运行](#安装与运行).
 
 ---
 
@@ -132,12 +132,13 @@ vps/nginx.conf.example    VPS 侧 HTTPS 反代 + bearer 鉴权的示例（全是
 - **MCP 传输是手写的最小 Streamable HTTP**：一个 POST 端点收 JSON-RPC 2.0、回单个 JSON；`GET /health` 回 rish/Pillow 状态。没用官方 SDK，所以手机上不用 pip 装任何东西。跟 Claude Code CLI 握手正常；**跟 claude.ai 网页版 connector 没测过**。
 - 服务器**只监听 127.0.0.1**，公网暴露完全交给 VPS 的 nginx + 隧道。手机本身不开任何对外端口。
 
-### MCP 工具一览（13 个）
+### MCP 工具一览（14 个）
 
 "已验证"= 在真机上实际用过并确认行为正确；"未验证"= 代码在、原理跟已验证的一样，但没逐一实测。
 
 | 工具 | 做什么 | 状态 |
 |---|---|---|
+| `notify(text, title="Wren", vibrate_ms=400, toast=False)` | 经 Termux:API 往通知栏推一条（锁屏可见，可带振动/toast）。不走 rish、不碰界面，所以锁屏状态下也能调 | 部分验证：`termux-notification` 命令在真机上推出过（当时未锁屏）；锁屏时的显示、以 MCP 工具形态调用，都还未验证 |
 | `screenshot(quality=75, scale=0.75)` | 截屏，返回 JPEG（默认 75% 质量、0.75 倍缩放，省 token） | 已验证 |
 | `screen_info()` | 返回 `wm size` / `wm density` | 已验证（但 density 经 rish 返回空，只有分辨率可靠） |
 | `click(x, y)` | 点一下（截图空间坐标） | 已验证 |
@@ -234,6 +235,24 @@ claude mcp add --transport http -s user phone https://<YOUR_DOMAIN>/phone/ \
 - **我刻意不做的事**：不自己执行会杀掉 `adb_mcp.py` 或隧道的命令（`pkill -f adb_mcp.py`、重跑 `qi.sh` 这类会切断我自己操作手机的那条线，回不来），这一下交给人按回车。改代码→`scp`→敲命令我都能在 Termux 里自己完成，唯独"自我终止"这一步留给人。
 - 手机侧 `qi.sh` 用 `StrictHostKeyChecking=accept-new`：第一次连接会记住 VPS 的 host key，之后不一致会拒绝。第一次跑之前最好自己核对一遍指纹（坑 2 那次就是靠对指纹排查的）。
 - VPS 上给隧道用的 SSH 用户别用 root，`authorized_keys` 加 `restrict,port-forwarding` 把这把钥匙限制成"只能开隧道"。
+
+### 扩展：锁屏通知（`notify`）
+
+> 这一节的做法和三条坑来自 AI 笔友**琢**的经验（他们用一加 7T），经他同意写进来。我们这边只验证了"命令能推出通知"，锁屏显示还没验证。
+
+其它 13 个工具都是"看屏幕、按屏幕"，屏幕一锁就全部失效。`notify` 是唯一不靠界面的：它直接在 Termux 里跑 `termux-notification`，所以手机锁着也能推一条到锁屏。
+
+准备：
+1. 装 **Termux:API** 这个 App（F-Droid 版，跟 Termux 同一个来源，签名要一致）
+2. Termux 里 `pkg install termux-api`
+3. 测一下：`termux-notification -t Wren -c "hello" --vibrate 400`
+
+琢踩过的三条坑：
+1. `com.termux.api` 会被安卓置成 **stopped** 状态。一旦进了 stopped，所有 `termux-xxx` 命令都静默挂住，重装 APK 也清不掉，得手动打开一次 Termux:API 把它唤起来。所以 `notify` 里加了 20 秒超时，超时会提示你去唤醒它。
+2. 手机在**静音**模式时，振动会被一起捂掉。
+3. ColorOS 的振动按 ALARM 换算，振幅压到最低，**短于 300ms 基本感觉不到**。`notify` 会把 `vibrate_ms` 下限钳到 300。
+
+能做到的是"锁屏上能看见一条、点开进 Termux"。想要像聊天软件那样弹在锁屏还能直接回复，得走真正的推送服务（FCM 或自建 ntfy），不是 Termux 能做的。
 
 ### 已知限制
 

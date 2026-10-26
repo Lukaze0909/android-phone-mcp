@@ -220,6 +220,29 @@ def tool_screen_info():
     return {"content": [{"type": "text", "text": f"{size.strip()}\n{density.strip()}"}]}
 
 
+def tool_notify(text, title="Wren", vibrate_ms=400, toast=False):
+    """Push a notification that shows on the lock screen. Runs Termux:API
+    directly (not via rish): termux-notification is a Termux command.
+    Needs the Termux:API app + `pkg install termux-api`. If com.termux.api
+    gets frozen in 'stopped' state these calls hang silently, hence the timeout."""
+    cmd = ["termux-notification", "-t", str(title), "-c", str(text),
+           "--priority", "max", "--id", "wren"]
+    if vibrate_ms:
+        # ColorOS damps short vibrations; under ~300ms is barely felt
+        cmd += ["--vibrate", str(max(300, int(vibrate_ms)))]
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=20)
+        if r.returncode != 0:
+            return err_content(f"termux-notification rc={r.returncode}: {r.stderr.strip()}")
+        if toast:
+            subprocess.run(["termux-toast", str(text)], capture_output=True, timeout=20)
+    except subprocess.TimeoutExpired:
+        return err_content("termux-notification timed out (com.termux.api may be stopped; open the Termux:API app once to wake it)")
+    except FileNotFoundError:
+        return err_content("termux-notification not found: install the Termux:API app and run `pkg install termux-api`")
+    return {"content": [{"type": "text", "text": f"notification posted: {title}: {text}"}]}
+
+
 def ok_or_err(ok, out, success_msg):
     if not ok:
         return err_content(out)
@@ -231,6 +254,20 @@ def err_content(msg):
 
 
 TOOLS = {
+    "notify": {
+        "description": "Push a notification to the phone (shows on the lock screen, optional vibration and toast). Works while the screen is locked, unlike the UI tools.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "text": {"type": "string"},
+                "title": {"type": "string", "description": "default Wren"},
+                "vibrate_ms": {"type": "integer", "description": "0 = no vibration; min effective 300, default 400"},
+                "toast": {"type": "boolean", "description": "also flash a toast at the bottom of the screen"},
+            },
+            "required": ["text"],
+        },
+        "handler": lambda a: tool_notify(a["text"], a.get("title", "Wren"), a.get("vibrate_ms", 400), a.get("toast", False)),
+    },
     "screenshot": {
         "description": "Take a screenshot of the phone screen. Compressed JPEG (default 75% quality, 75% scale) to keep token cost low.",
         "inputSchema": {
