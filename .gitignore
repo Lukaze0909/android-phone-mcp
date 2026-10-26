@@ -1,0 +1,28 @@
+# secrets / local config — never commit
+.env
+.env.*
+*.env
+*.token
+*token*.txt
+secrets/
+# the real nginx vhost contains the bearer token; only the .example is tracked
+vps/*.conf
+!vps/nginx.conf.example
+# SSH material
+id_*
+*.pem
+*.key
+authorized_keys
+known_hosts
+
+# python
+__pycache__/
+*.pyc
+*.pyo
+
+# runtime junk
+*.log
+.adb_mcp_logs/
+*.bak
+*.bak-*
+.DS_Store
