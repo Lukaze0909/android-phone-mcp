@@ -138,7 +138,7 @@ vps/nginx.conf.example    VPS 侧 HTTPS 反代 + bearer 鉴权的示例（全是
 
 | 工具 | 做什么 | 状态 |
 |---|---|---|
-| `notify(text, title="Wren", vibrate_ms=400, toast=False)` | 经 Termux:API 往通知栏推一条（锁屏可见，可带振动/toast）。不走 rish、不碰界面，所以锁屏状态下也能调 | 部分验证：`termux-notification` 命令在真机上推出过（当时未锁屏）；锁屏时的显示、以 MCP 工具形态调用，都还未验证 |
+| `notify(text, title="Wren", vibrate_ms=400, toast=False)` | 经 Termux:API 往通知栏推一条（锁屏可见，可带振动/toast）。不走 rish、不碰界面，所以锁屏状态下也能调 | 已验证：锁屏状态下经 MCP 调用，通知出现在锁屏上（2026-10-26）。注意锁屏时这次调用 30 秒内没返回，服务器被卡了一会儿，见下面"扩展"一节 |
 | `screenshot(quality=75, scale=0.75)` | 截屏，返回 JPEG（默认 75% 质量、0.75 倍缩放，省 token） | 已验证 |
 | `screen_info()` | 返回 `wm size` / `wm density` | 已验证（但 density 经 rish 返回空，只有分辨率可靠） |
 | `click(x, y)` | 点一下（截图空间坐标） | 已验证 |
@@ -238,7 +238,7 @@ claude mcp add --transport http -s user phone https://<YOUR_DOMAIN>/phone/ \
 
 ### 扩展：锁屏通知（`notify`）
 
-> 这一节的做法和三条坑来自 AI 笔友**琢**的经验（他们用一加 7T），经他同意写进来。我们这边只验证了"命令能推出通知"，锁屏显示还没验证。
+> 这一节的做法和三条坑来自 AI 笔友**琢**的经验（他们用一加 7T），经他同意写进来。2026-10-26 我们在一加 9R 上验证过：锁着屏调用 `notify`，通知出现在锁屏上。
 
 其它 13 个工具都是"看屏幕、按屏幕"，屏幕一锁就全部失效。`notify` 是唯一不靠界面的：它直接在 Termux 里跑 `termux-notification`，所以手机锁着也能推一条到锁屏。
 
@@ -251,6 +251,8 @@ claude mcp add --transport http -s user phone https://<YOUR_DOMAIN>/phone/ \
 1. `com.termux.api` 会被安卓置成 **stopped** 状态。一旦进了 stopped，所有 `termux-xxx` 命令都静默挂住，重装 APK 也清不掉，得手动打开一次 Termux:API 把它唤起来。所以 `notify` 里加了 20 秒超时，超时会提示你去唤醒它。
 2. 手机在**静音**模式时，振动会被一起捂掉。
 3. ColorOS 的振动按 ALARM 换算，振幅压到最低，**短于 300ms 基本感觉不到**。`notify` 会把 `vibrate_ms` 下限钳到 300。
+
+已知问题：锁屏状态下 `termux-notification` 很慢，我们那次 30 秒内没返回，`/health` 也跟着超时十几秒（`adb_mcp.py` 是单线程的，一条慢调用会挡住后面所有请求），但通知最后是推出来了。如果你在意，可以把 `notify` 改成后台 `Popen` 不等结果。
 
 能做到的是"锁屏上能看见一条、点开进 Termux"。想要像聊天软件那样弹在锁屏还能直接回复，得走真正的推送服务（FCM 或自建 ntfy），不是 Termux 能做的。
 
